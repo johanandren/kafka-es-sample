@@ -3,7 +3,6 @@ package com.example;
 import akka.Done;
 import akka.NotUsed;
 import akka.actor.ActorSystem;
-import akka.japi.Pair;
 import akka.kafka.ConsumerMessage;
 import akka.kafka.ConsumerMessage.CommittableMessage;
 import akka.kafka.ConsumerSettings;
@@ -23,31 +22,46 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.elasticsearch.client.RestClient;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 
 public class App {
 
-    // fake domain model class to represent a parsed event
-    static class Event {
-    }
+    // Akka bootstrap
+    final ActorSystem system = ActorSystem.create("example");
+    final Materializer materializer = ActorMaterializer.create(system);
 
     // these would come from config, but put here to make the sample self contained
-    private static final String KAFKA_BOOTSTRAP_SERVERS = "127.0.0.1:9091";
-    private static final String ELASTIC_SEARCH_SERVER = "127.0.0.1";
-    private static final int ELASTIC_SEARCH_PORT = 9201;
+    String kafkaBootstrapServers = "127.0.0.1:9091";
+    String elasticSearchServer = "127.0.0.1";
+    int elasticSearchPort = 9201;
+
+
+    // fake domain model class to represent a parsed event
+    static class Event {
+        private final String field;
+        public Event(String field) {
+            this.field = field;
+        }
+
+        public String getField() {
+            return field;
+        }
+    }
 
     public static void main(String[] args) {
-        // Akka bootstrap
-        final ActorSystem system = ActorSystem.create("example");
-        final Materializer materializer = ActorMaterializer.create(system);
 
+        App app = new App();
+        app.run();
+    }
+
+    public Consumer.DrainingControl<Done> run() {
         // kafka consumer setup
         final ConsumerSettings<byte[], byte[]> consumerSettings =
             // option: we could choose to instead do parsing/deserialization already here, with the Kafka infrastructure
             ConsumerSettings.create(system, new ByteArrayDeserializer(), new ByteArrayDeserializer())
-                .withBootstrapServers(KAFKA_BOOTSTRAP_SERVERS)
+                .withBootstrapServers(kafkaBootstrapServers)
                 .withGroupId("my-consumer-group")
                 // I think this may be a bit dangerous because TTL of offset, if no write within N hours it will be lost
                 .withProperty(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
@@ -56,12 +70,12 @@ public class App {
 
 
         // elastic search client setup
-        final RestClient esClient = RestClient.builder(new HttpHost(ELASTIC_SEARCH_SERVER, ELASTIC_SEARCH_PORT)).build();
+        final RestClient esClient = RestClient.builder(new HttpHost(elasticSearchServer, elasticSearchPort)).build();
 
         final Flow<IncomingMessage<Event, CommittableMessage<byte[], byte[]>>, List<IncomingMessageResult<Event, CommittableMessage<byte[], byte[]>>>, NotUsed> writeToElasticSearch =
             ElasticsearchFlow.createWithPassThrough(
-                "index-name",
-                "type-name",
+                "my-index-name",
+                "my-type-name",
                 ElasticsearchSinkSettings.Default()
                     // if not disabled, this could re-order messages and break committing to kafka
                     .withRetryPartialFailure(false)
@@ -80,6 +94,7 @@ public class App {
             .buffer(30, OverflowStrategy.backpressure())
             // parse the kafka message into our own data structure - but keep the original kafka message
             // so that we can commit it when done
+            .log("before-parsing")
             .map(kafkaMessage -> {
                 // decision: how to deal with parse errors here - fail stream and require manual solution, throw away message?
                 Event event = parseKafkaMessage(kafkaMessage.record().value());
@@ -88,6 +103,7 @@ public class App {
             })
             // the elastic search flow does batching and bulk inserts, and retries
             .via(writeToElasticSearch)
+            .log("after-es-insert")
             .mapAsync(1, writeResults -> {
                 // figure out if any write in the batch failed
                 List<IncomingMessageResult<Event, CommittableMessage<byte[], byte[]>>> failures =
@@ -130,11 +146,14 @@ public class App {
             if (failure != null) system.log().error("Stream failure", failure);
             else system.log().info("Stream completed");
         });
+
+        return drainingControl;
     }
 
     public static Event parseKafkaMessage(byte[] bytes) {
         // parsing, this could potentially throw an exception if the message cannot be parsed
-        return new Event();
+        // throw new RuntimeException("argh, not deserializable!");
+        return new Event(new String(bytes, StandardCharsets.UTF_8));
     }
 
 }

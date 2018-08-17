@@ -94,16 +94,15 @@ public class App {
             .buffer(30, OverflowStrategy.backpressure())
             // parse the kafka message into our own data structure - but keep the original kafka message
             // so that we can commit it when done
-            .log("before-parsing")
             .map(kafkaMessage -> {
                 // decision: how to deal with parse errors here - fail stream and require manual solution, throw away message?
+                // decision: this is also where you have shared mutable state - we need to deal with that
                 Event event = parseKafkaMessage(kafkaMessage.record().value());
                 // incoming message is specific to the es-connector
                 return IncomingMessage.create(event, kafkaMessage);
             })
             // the elastic search flow does batching and bulk inserts, and retries
             .via(writeToElasticSearch)
-            .log("after-es-insert")
             .mapAsync(1, writeResults -> {
                 // figure out if any write in the batch failed
                 List<IncomingMessageResult<Event, CommittableMessage<byte[], byte[]>>> failures =

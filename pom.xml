@@ -16,12 +16,24 @@
     <maven.compiler.source>1.8</maven.compiler.source>
     <maven.compiler.target>1.8</maven.compiler.target>
     <akka.version>2.5.14</akka.version>
+    <cinnamon.version>2.10.0</cinnamon.version>
   </properties>
 
   <dependencies>
     <dependency>
       <groupId>com.typesafe.akka</groupId>
       <artifactId>akka-stream_2.12</artifactId>
+      <version>${akka.version}</version>
+    </dependency>
+    <!-- monitoring sandbox pulls these in, but the wrong versions -->
+    <dependency>
+      <groupId>com.typesafe.akka</groupId>
+      <artifactId>akka-remote_2.12</artifactId>
+      <version>${akka.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.typesafe.akka</groupId>
+      <artifactId>akka-cluster_2.12</artifactId>
       <version>${akka.version}</version>
     </dependency>
     <dependency>
@@ -34,6 +46,36 @@
       <artifactId>akka-stream-alpakka-elasticsearch_2.12</artifactId>
       <version>0.20</version>
     </dependency>
+
+    <!-- Use Coda Hale Metrics -->
+    <dependency>
+      <groupId>com.lightbend.cinnamon</groupId>
+      <artifactId>cinnamon-chmetrics_2.12</artifactId>
+      <version>${cinnamon.version}</version>
+    </dependency>
+    <!-- Use Akka instrumentation -->
+    <dependency>
+      <groupId>com.lightbend.cinnamon</groupId>
+      <artifactId>cinnamon-akka_2.12</artifactId>
+      <version>${cinnamon.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.lightbend.cinnamon</groupId>
+      <artifactId>cinnamon-akka-stream_2.12</artifactId>
+      <version>${cinnamon.version}</version>
+    </dependency>
+    <!-- Use Akka HTTP instrumentation -->
+    <dependency>
+      <groupId>com.lightbend.cinnamon</groupId>
+      <artifactId>cinnamon-akka-http_2.12</artifactId>
+      <version>${cinnamon.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>com.lightbend.cinnamon</groupId>
+      <artifactId>cinnamon-sandbox_2.12</artifactId>
+      <version>${cinnamon.version}</version>
+    </dependency>
+
 
     <dependency>
       <groupId>junit</groupId>
@@ -52,7 +94,7 @@
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-log4j12</artifactId>
-      <version>1.2.16</version>
+      <version>1.7.25</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -69,4 +111,67 @@
     </dependency>
 
   </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <version>2.10</version>
+        <executions>
+          <execution>
+            <id>copy</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>copy</goal>
+            </goals>
+            <configuration>
+              <artifactItems>
+                <artifactItem>
+                  <groupId>com.lightbend.cinnamon</groupId>
+                  <artifactId>cinnamon-agent</artifactId>
+                  <version>2.10.0</version>
+                  <overWrite>true</overWrite>
+                  <destFileName>cinnamon-agent.jar</destFileName>
+                </artifactItem>
+              </artifactItems>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>1.4.0</version>
+        <configuration>
+          <executable>java</executable>
+          <arguments>
+            <argument>-classpath</argument>
+            <classpath/>
+            <argument>-javaagent:${project.build.directory}/dependency/cinnamon-agent.jar</argument>
+          </arguments>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>2.12.4</version>
+        <configuration>
+          <argLine>-javaagent:${project.build.directory}/dependency/cinnamon-agent.jar</argLine>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+  <repositories>
+    <repository>
+      <id>lightbend-commercial</id>
+      <name>Lightbend Commercial</name>
+      <url>https://lightbend.bintray.com/commercial-releases</url>
+    </repository>
+    <repository>
+      <id>lightbend-contrail</id>
+      <name>Lightbend Contrail</name>
+      <url>https://dl.bintray.com/typesafe/commercial-maven-releases</url>
+    </repository>
+  </repositories>
 </project>

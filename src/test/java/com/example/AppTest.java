@@ -53,10 +53,13 @@ public class AppTest {
         app.elasticSearchPort = 9201; // the ES cluster runner starts enumerating ports from 9201
 
         Consumer.DrainingControl<Done> streamStopped = app.run();
-        Kafka.publishToKafka("my-kafka-topic", "message");
+        app.system.scheduler().schedule(Duration.ofSeconds(1), Duration.ofSeconds(1), () -> {
+            Kafka.publishToKafka("my-kafka-topic", "message");
+        }, app.system.dispatcher());
 
         // here we cannot know if the element has reached ES yet,
         // we need to to do an assertion that will turn true within some interval
+        /*
         TestKit testKit = new TestKit(app.system);
         testKit.awaitAssert(Duration.ofSeconds(10), () -> {
             try {
@@ -74,6 +77,9 @@ public class AppTest {
         // block on stream completion
         streamStopped.drainAndShutdown(ForkJoinPool.commonPool())
             .toCompletableFuture().get(5, TimeUnit.SECONDS);
+        */
+        // just keep it running to showcase monitoring
+        Thread.sleep(300000);
 
     }
 }

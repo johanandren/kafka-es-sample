@@ -17,6 +17,7 @@ import akka.stream.alpakka.elasticsearch.IncomingMessageResult;
 import akka.stream.alpakka.elasticsearch.javadsl.ElasticsearchFlow;
 import akka.stream.javadsl.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.typesafe.config.ConfigException;
 import org.apache.http.HttpHost;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
@@ -38,15 +39,46 @@ public class App {
     int elasticSearchPort = 9201;
 
 
-    // fake domain model class to represent a parsed event
-    public static class Event {
+    // marker interface/ADT top type with exactly two implementations below
+    interface ParsedRecord {
+        String destinationIndex();
+    }
+
+    public static final class MonitoringMessage implements ParsedRecord {
         private final String field;
-        public Event(String field) {
+
+        @Override
+        public String destinationIndex() {
+            return "normal_messages";
+        }
+
+        public MonitoringMessage(String field) {
             this.field = field;
         }
 
         public String getField() {
             return field;
+        }
+    }
+
+    public static class NotParseable implements ParsedRecord {
+        private final String rawData;
+        private final String parseError;
+        public NotParseable(String rawData, String parseError) {
+            this.rawData = rawData;
+            this.parseError = parseError;
+        }
+
+        @Override
+        public String destinationIndex() {
+            return "failed_messages";
+        }
+
+        public String getRawData() {
+            return rawData;
+        }
+        public String getParseError() {
+            return parseError;
         }
     }
 
@@ -72,9 +104,9 @@ public class App {
         // elastic search client setup
         final RestClient esClient = RestClient.builder(new HttpHost(elasticSearchServer, elasticSearchPort)).build();
 
-        final Flow<IncomingMessage<Event, CommittableMessage<byte[], byte[]>>, List<IncomingMessageResult<Event, CommittableMessage<byte[], byte[]>>>, NotUsed> writeToElasticSearch =
+        final Flow<IncomingMessage<ParsedRecord, CommittableMessage<byte[], byte[]>>, List<IncomingMessageResult<ParsedRecord, CommittableMessage<byte[], byte[]>>>, NotUsed> writeToElasticSearch =
             ElasticsearchFlow.createWithPassThrough(
-                "my-index-name",
+                "not-actually-used-messages-decides",
                 "my-type-name",
                 ElasticsearchSinkSettings.Default()
                     // if not disabled, this could re-order messages and break committing to kafka
@@ -97,15 +129,19 @@ public class App {
             .map(kafkaMessage -> {
                 // decision: how to deal with parse errors here - fail stream and require manual solution, throw away message?
                 // decision: this is also where you have shared mutable state - we need to deal with that
-                Event event = parseKafkaMessage(kafkaMessage.record().value());
+                ParsedRecord parsed = parseKafkaMessage(kafkaMessage.record().value());
+
                 // incoming message is specific to the es-connector
-                return IncomingMessage.create(event, kafkaMessage);
+
+                return IncomingMessage.create(parsed, kafkaMessage)
+                    // allows writing to different indexes in the same batch
+                    .withIndexName(parsed.destinationIndex());
             })
             // the elastic search flow does batching and bulk inserts, and retries
             .via(writeToElasticSearch)
             .mapAsync(1, writeResults -> {
                 // figure out if any write in the batch failed
-                List<IncomingMessageResult<Event, CommittableMessage<byte[], byte[]>>> failures =
+                List<IncomingMessageResult<ParsedRecord, CommittableMessage<byte[], byte[]>>> failures =
                     writeResults.stream()
                         .filter(result -> !result.success())
                         .collect(Collectors.toList());
@@ -149,10 +185,14 @@ public class App {
         return drainingControl;
     }
 
-    public static Event parseKafkaMessage(byte[] bytes) {
+    public static ParsedRecord parseKafkaMessage(byte[] bytes) {
         // parsing, this could potentially throw an exception if the message cannot be parsed
         // throw new RuntimeException("argh, not deserializable!");
-        return new Event(new String(bytes, StandardCharsets.UTF_8));
+        String textPayload = new String(bytes, StandardCharsets.UTF_8);
+        if (textPayload.equals("bad data"))
+            return new NotParseable(textPayload, "That is impossible to parse!");
+        else
+            return new MonitoringMessage(textPayload);
     }
 
 }

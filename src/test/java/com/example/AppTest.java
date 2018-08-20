@@ -32,7 +32,7 @@ public class AppTest {
         elasticsearchClusterRunner = new ElasticsearchClusterRunner();
         elasticsearchClusterRunner.onBuild((number, settingsBuilder) -> {
             // put elasticsearch settings
-            // settingsBuilder.put("index.number_of_replicas", 0);
+            // settingsBuilder.put("destinationIndex.number_of_replicas", 0);
         }).build(newConfigs());
     }
 
@@ -54,21 +54,33 @@ public class AppTest {
 
         Consumer.DrainingControl<Done> streamStopped = app.run();
         Kafka.publishToKafka("my-kafka-topic", "message1");
+        Kafka.publishToKafka("my-kafka-topic", "bad data");
 
 
         // here we cannot know if the element has reached ES yet,
         // we need to to do an assertion that will turn true within some interval
         TestKit testKit = new TestKit(app.system);
+        final Client esClient = elasticsearchClusterRunner.client();
         testKit.awaitAssert(Duration.ofSeconds(10), () -> {
             try {
-                Client esClient = elasticsearchClusterRunner.client();
-                SearchResponse result = esClient.search(new SearchRequest("my-index-name"))
+                SearchResponse result = esClient.search(new SearchRequest("normal_messages"))
                     .get(1, TimeUnit.SECONDS);
                 assertEquals(1, result.getHits().totalHits);
                 assertEquals(
                     "message1",
                     result.getHits().getHits()[0].getSourceAsMap().get("field"));
 
+                return result;
+            } catch (Exception ex) {
+                throw new RuntimeException(ex);
+            }
+        });
+
+        testKit.awaitAssert(Duration.ofSeconds(10), () -> {
+            try {
+                SearchResponse result = esClient.search(new SearchRequest("failed_messages"))
+                    .get(1, TimeUnit.SECONDS);
+                assertEquals(1, result.getHits().totalHits);
                 return result;
             } catch (Exception ex) {
                 throw new RuntimeException(ex);

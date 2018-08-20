@@ -41,11 +41,25 @@
       <artifactId>akka-stream-kafka_2.12</artifactId>
       <version>0.22</version>
     </dependency>
+
+    <!-- es connector, but override and explicitly set client version -->
     <dependency>
       <groupId>com.lightbend.akka</groupId>
       <artifactId>akka-stream-alpakka-elasticsearch_2.12</artifactId>
       <version>0.20</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.elasticsearch.client</groupId>
+          <artifactId>rest</artifactId>
+        </exclusion>
+      </exclusions>
     </dependency>
+    <dependency>
+      <groupId>org.elasticsearch.client</groupId>
+      <artifactId>elasticsearch-rest-client</artifactId>
+      <version>6.3.2</version>
+    </dependency>
+
 
     <!-- Use Coda Hale Metrics -->
     <dependency>
@@ -100,7 +114,7 @@
     <dependency>
       <groupId>org.codelibs</groupId>
       <artifactId>elasticsearch-cluster-runner</artifactId>
-      <version>5.5.2.0</version>
+      <version>6.2.3.0</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -157,7 +171,9 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>2.12.4</version>
         <configuration>
-          <argLine>-javaagent:${project.build.directory}/dependency/cinnamon-agent.jar</argLine>
+          <!--
+          Add this to run with cinnamon when testing (not super useful in general)
+          <argLine>-javaagent:${project.build.directory}/dependency/cinnamon-agent.jar</argLine> -->
         </configuration>
       </plugin>
     </plugins>

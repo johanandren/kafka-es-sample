@@ -39,7 +39,7 @@ public class App {
 
 
     // fake domain model class to represent a parsed event
-    static class Event {
+    public static class Event {
         private final String field;
         public Event(String field) {
             this.field = field;

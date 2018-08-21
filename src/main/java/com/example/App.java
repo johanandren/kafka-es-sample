@@ -7,10 +7,12 @@ import akka.pattern.BackoffOnRestartSupervisor;
 import akka.pattern.BackoffSupervisor;
 import akka.stream.ActorMaterializer;
 import akka.stream.Materializer;
+import akka.util.Timeout;
 import scala.concurrent.duration.FiniteDuration;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import static akka.pattern.PatternsCS.ask;
 
 public class App {
 
@@ -41,6 +43,8 @@ public class App {
             ),
             "supervisor"
         );
+
+        // TODO stop the system when/if the supervisor stops (because it gave up on restarting the child)
 
         // now a web route could do
         /*

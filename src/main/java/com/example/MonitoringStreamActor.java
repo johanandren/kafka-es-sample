@@ -10,6 +10,7 @@ import akka.kafka.ConsumerMessage;
 import akka.kafka.ConsumerSettings;
 import akka.kafka.Subscriptions;
 import akka.kafka.javadsl.Consumer;
+import akka.stream.ActorMaterializer;
 import akka.stream.Materializer;
 import akka.stream.OverflowStrategy;
 import akka.stream.alpakka.elasticsearch.ElasticsearchSinkSettings;
@@ -45,7 +46,7 @@ public class MonitoringStreamActor extends AbstractLoggingActor {
   }
 
   // message protocol
-  public static Object SHUTDOWN_GRACEFULLY = new Object();
+  public static final Object SHUTDOWN_GRACEFULLY = new Object();
 
 
   public static Props props(Settings settings, Materializer materializer) {

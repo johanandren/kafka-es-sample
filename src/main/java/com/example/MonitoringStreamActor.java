@@ -6,6 +6,7 @@ import akka.actor.AbstractLoggingActor;
 import akka.actor.ActorRef;
 import akka.actor.Props;
 import akka.actor.Status;
+import akka.japi.Pair;
 import akka.kafka.ConsumerMessage;
 import akka.kafka.ConsumerSettings;
 import akka.kafka.Subscriptions;
@@ -20,9 +21,11 @@ import akka.stream.alpakka.elasticsearch.javadsl.ElasticsearchFlow;
 import akka.stream.javadsl.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.http.HttpHost;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.elasticsearch.client.RestClient;
+import org.elasticsearch.client.RestClientBuilder;
 
 import java.util.List;
 import java.util.concurrent.CompletionStage;
@@ -73,7 +76,8 @@ public class MonitoringStreamActor extends AbstractLoggingActor {
     // elastic search client setup
     esClient = RestClient.builder(new HttpHost(
         settings.elasticSearchServer,
-        settings.elasticSearchPort)).build();
+        settings.elasticSearchPort))
+        .build();
 
     final Flow<IncomingMessage<ParsedRecord, ConsumerMessage.CommittableMessage<byte[], byte[]>>, List<IncomingMessageResult<ParsedRecord, ConsumerMessage.CommittableMessage<byte[], byte[]>>>, NotUsed> writeToElasticSearch =
         ElasticsearchFlow.createWithPassThrough(
@@ -91,7 +95,7 @@ public class MonitoringStreamActor extends AbstractLoggingActor {
             new ObjectMapper());
 
     // construct stream
-    final RunnableGraph<Consumer.DrainingControl<Done>> kafkaToEsGraph = kafkaSource
+    RunnableGraph<Pair<Consumer.Control, CompletionStage<Done>>> kafkaToEsGraph = kafkaSource
         // make sure we eagerly fetch, up to 30 records at all times - this is an optimization
         // but it would be good to know if it really helps anything
         .buffer(30, OverflowStrategy.backpressure())
@@ -132,17 +136,19 @@ public class MonitoringStreamActor extends AbstractLoggingActor {
         })
         // this is a technicality, a more natural way of thinking about it would be .foreachAsync(1, elem -> CS())
         // which is worked on in Akka issue #25152, will likely end up in 2.5.15
-        .toMat(Sink.ignore(), Keep.both())
-        .mapMaterializedValue(Consumer::createDrainingControl);
+        .toMat(Sink.ignore(), Keep.both());
 
-    drainingControl = kafkaToEsGraph.run(materializer);
+    Pair<Consumer.Control, CompletionStage<Done>> materializedValue = kafkaToEsGraph.run(materializer);
+    drainingControl = Consumer.createDrainingControl(materializedValue);
     log().info("Stream started");
 
     // make sure we get a message about the stream stopping or failing
-    // for success the Done is sent directly, for failure we get an
-    // akka.actor.Status.Failure(exception)
-    pipe(drainingControl.isShutdown(), getContext().dispatcher())
-        .pipeTo(getSelf(), ActorRef.noSender());
+    // from the Sink of the stream in a safe way, using "pipe":
+    // for success the Done is sent directly and for failure we get an
+    // akka.actor.Status.Failure(exception) sent to the actor itself
+    CompletionStage<Done> streamCompletion = materializedValue.second();
+    pipe(streamCompletion, getContext().dispatcher())
+        .to(getSelf(), ActorRef.noSender());
   }
 
   @Override

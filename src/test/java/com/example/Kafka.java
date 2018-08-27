@@ -11,7 +11,14 @@ import scala.collection.immutable.Map$;
  */
 public final class Kafka {
 
-  private static final EmbeddedKafkaConfig CONFIG = EmbeddedKafkaConfig$.MODULE$.defaultConfig();
+  private static final EmbeddedKafkaConfig CONFIG = EmbeddedKafkaConfig$.MODULE$.apply(
+      7899, // kafka port
+      10124, // zookeeper port
+      scala.collection.Map$.MODULE$.empty(), // "custom broker properties"
+      scala.collection.Map$.MODULE$.empty(), // "custom producer properties"
+      scala.collection.Map$.MODULE$.empty() // "custom consumer properties"
+
+  );
   public static EmbeddedKafkaConfig getConfig() {
     return CONFIG;
   }
